@@ -992,6 +992,38 @@ def test_num2timedelta(x, tdelta):
     assert dt == tdelta
 
 
+def test_pd_timedelta2np(pd):
+    pd_td = [pd.Timedelta(seconds=1), pd.NaT]
+    td = np.array([np.timedelta64(1, 's'),
+                   np.timedelta64('nat')])
+    converted = mdates.pd_timedelta2np(pd_td)
+    np.testing.assert_array_equal(td, converted)
+
+
+@pytest.mark.parametrize("x, tdelta",
+                         [(1, datetime.timedelta(days=1)),
+                          (0.25, datetime.timedelta(hours=6)),
+                          (3/86400/1000, datetime.timedelta(milliseconds=3)),
+                          (np.nan, np.timedelta64('nat')),
+                          ([1, 1.5], [datetime.timedelta(days=1),
+                                      datetime.timedelta(days=1.5)])])
+def test_timedelta2num(x, tdelta):
+    np.testing.assert_equal(x, mdates.timedelta2num(tdelta))
+
+
+@pytest.mark.parametrize("x, td_kwargs",
+                         [(2, {'days': 2}),
+                          (0.25, {'hours': 6}),
+                          (3/86400/1000, {'milliseconds': 3})])
+def test_timedelta2num_pandas(pd, x, td_kwargs):
+    pd_td = pd.Timedelta(**td_kwargs)
+    np.testing.assert_equal(x, mdates.timedelta2num(pd_td))
+
+
+def test_timedelta2num_pandas_nat(pd):
+    assert np.isnan(mdates.timedelta2num(pd.NaT))
+
+
 def test_datetime64_in_list():
     dt = [np.datetime64('2000-01-01'), np.datetime64('2001-01-01')]
     dn = mdates.date2num(dt)
