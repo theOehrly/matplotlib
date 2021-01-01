@@ -983,13 +983,31 @@ def test_tz_utc():
     dt.tzname()
 
 
-@pytest.mark.parametrize("x, tdelta",
-                         [(1, datetime.timedelta(days=1)),
-                          ([1, 1.5], [datetime.timedelta(days=1),
-                                      datetime.timedelta(days=1.5)])])
-def test_num2timedelta(x, tdelta):
-    dt = mdates.num2timedelta(x)
-    assert dt == tdelta
+def test_strftimedelta():
+    cases = [
+        (datetime.timedelta(days=1), "%d %day, %h:%m", "1 day, 00:00"),
+        (datetime.timedelta(days=2.25), "%d %day, %h:%m", "2 days, 06:00"),
+        (datetime.timedelta(seconds=362), "%h:%m:%s.%ms", "00:06:02.000"),
+        (datetime.timedelta(microseconds=1250), "%s.%ms%us", "00.001250"),
+        (datetime.timedelta(days=-0.25), "%h:%m", "-06:00"),
+        (datetime.timedelta(days=-1.5), "%d %day, %h:%m", "-1 day, 12:00"),
+        (datetime.timedelta(days=2), "%H hours", "48 hours"),
+        (datetime.timedelta(days=0.25), "%M min", "360 min"),
+        (datetime.timedelta(seconds=362.13), "%S.%ms", "362.130")
+    ]
+
+    for td, fmt, expected in cases:
+        assert mdates.strftimedelta(td, fmt) == expected
+
+
+def test_num2timedelta():
+    results = [(1, datetime.timedelta(days=1)),
+               ([1, 1.5], [datetime.timedelta(days=1),
+                           datetime.timedelta(days=1.5)])]
+
+    for x, tdelta in results:
+        dt = mdates.num2timedelta(x)
+        assert dt == tdelta
 
 
 def test_pd_timedelta2np(pd):
@@ -1000,28 +1018,124 @@ def test_pd_timedelta2np(pd):
     np.testing.assert_array_equal(td, converted)
 
 
-@pytest.mark.parametrize("x, tdelta",
-                         [(1, datetime.timedelta(days=1)),
-                          (0.25, datetime.timedelta(hours=6)),
-                          (3/86400/1000, datetime.timedelta(milliseconds=3)),
-                          (np.nan, np.timedelta64('nat')),
-                          ([1, 1.5], [datetime.timedelta(days=1),
-                                      datetime.timedelta(days=1.5)])])
-def test_timedelta2num(x, tdelta):
-    np.testing.assert_equal(x, mdates.timedelta2num(tdelta))
+def test_timedelta2num():
+    results = [(1, datetime.timedelta(days=1)),
+               (0.25, datetime.timedelta(hours=6)),
+               (3 / 86400 / 1000, datetime.timedelta(milliseconds=3)),
+               (np.nan, np.timedelta64('nat')),
+               ([1, 1.5], [datetime.timedelta(days=1),
+                           datetime.timedelta(days=1.5)])]
+    for x, tdelta in results:
+        np.testing.assert_equal(x, mdates.timedelta2num(tdelta))
 
 
-@pytest.mark.parametrize("x, td_kwargs",
-                         [(2, {'days': 2}),
-                          (0.25, {'hours': 6}),
-                          (3/86400/1000, {'milliseconds': 3})])
-def test_timedelta2num_pandas(pd, x, td_kwargs):
-    pd_td = pd.Timedelta(**td_kwargs)
-    np.testing.assert_equal(x, mdates.timedelta2num(pd_td))
+def test_timedelta2num_pandas(pd):
+    results = [(2, {'days': 2}),
+               (0.25, {'hours': 6}),
+               (3 / 86400 / 1000, {'milliseconds': 3})]
+    for x, td_kwargs in results:
+        pd_td = pd.Timedelta(**td_kwargs)
+        np.testing.assert_equal(x, mdates.timedelta2num(pd_td))
 
 
 def test_timedelta2num_pandas_nat(pd):
     assert np.isnan(mdates.timedelta2num(pd.NaT))
+
+
+def test_auto_timedelta_locator():
+    def _create_auto_timedelta_locator(delta1, delta2):
+        locator = mdates.AutoTimedeltaLocator()
+        locator.create_dummy_axis()
+        locator.set_view_interval(mdates.timedelta2num(delta1),
+                                  mdates.timedelta2num(delta2))
+        return locator
+
+    dt1 = datetime.timedelta(days=100)
+    results = ([datetime.timedelta(days=141),
+                ['75 days, 0:00:00', '100 days, 0:00:00',
+                 '125 days, 0:00:00', '150 days, 0:00:00',
+                 '175 days, 0:00:00', '200 days, 0:00:00',
+                 '225 days, 0:00:00', '250 days, 0:00:00'],
+                ],
+               [datetime.timedelta(hours=40),
+                ['99 days, 16:00:00', '100 days, 0:00:00',
+                 '100 days, 8:00:00', '100 days, 16:00:00',
+                 '101 days, 0:00:00', '101 days, 8:00:00',
+                 '101 days, 16:00:00', '102 days, 0:00:00'],
+                ],
+               [datetime.timedelta(minutes=20),
+                ['99 days, 23:57:00', '100 days, 0:00:00',
+                 '100 days, 0:03:00', '100 days, 0:06:00',
+                 '100 days, 0:09:00', '100 days, 0:12:00',
+                 '100 days, 0:15:00', '100 days, 0:18:00',
+                 '100 days, 0:21:00']
+                ],
+               [datetime.timedelta(seconds=40),
+                ['99 days, 23:59:55', '100 days, 0:00:00',
+                 '100 days, 0:00:05', '100 days, 0:00:10',
+                 '100 days, 0:00:15', '100 days, 0:00:20',
+                 '100 days, 0:00:25', '100 days, 0:00:30',
+                 '100 days, 0:00:35', '100 days, 0:00:40',
+                 '100 days, 0:00:45'],
+                ],
+               [datetime.timedelta(microseconds=1500),
+                ['100 days, 0:00:00', '100 days, 0:00:00.000200',
+                 '100 days, 0:00:00.000400', '100 days, 0:00:00.000600',
+                 '100 days, 0:00:00.000800', '100 days, 0:00:00.001000',
+                 '100 days, 0:00:00.001200', '100 days, 0:00:00.001400',
+                 '100 days, 0:00:00.001600']
+                ])
+
+    for t_delta, expected in results:
+        dt2 = dt1 + t_delta
+        locator = _create_auto_timedelta_locator(dt1, dt2)
+        assert list(map(str, mdates.num2timedelta(locator()))) == expected
+
+
+def test_fixed_timedelta_locator_allowed_base():
+    for base in mdates.TimedeltaLocator().base_units:
+        # should not raise
+        mdates.FixedTimedeltaLocator(base, 1)
+
+    with pytest.raises(ValueError):
+        mdates.FixedTimedeltaLocator('lightyear', 1)
+
+
+def test_fixed_timedelta_locator():
+    results = [
+        ('days', 0.5, 0.5, ['12:00:00', '1 day, 0:00:00',
+                            '1 day, 12:00:00', '2 days, 0:00:00']),
+        ('minutes', 20, 1 / mdates.HOURS_PER_DAY,
+         ['23:40:00', '1 day, 0:00:00',
+          '1 day, 0:20:00', '1 day, 0:40:00',
+          '1 day, 1:00:00', '1 day, 1:20:00'])
+    ]
+    for base, interval, tdelta, expected in results:
+        dt0 = datetime.timedelta(days=1)
+        dt1 = dt0 + datetime.timedelta(days=tdelta)
+        locator = mdates.FixedTimedeltaLocator(base, interval)
+        locator.create_dummy_axis()
+        locator.set_view_interval(*mdates.timedelta2num([dt0, dt1]))
+        assert list(map(str, mdates.num2timedelta(locator()))) == expected
+
+
+def test_auto_modified_intervald():
+    locator = mdates.AutoTimedeltaLocator()
+    locator.intervald['hours'] = [3]
+    locator.create_dummy_axis()
+    dt1 = datetime.timedelta(days=1)
+    dt2 = datetime.timedelta(days=3)
+    locator.set_view_interval(mdates.timedelta2num(dt1),
+                              mdates.timedelta2num(dt2))
+    expected = ['21:00:00', '1 day, 0:00:00', '1 day, 3:00:00',
+                '1 day, 6:00:00', '1 day, 9:00:00', '1 day, 12:00:00',
+                '1 day, 15:00:00', '1 day, 18:00:00', '1 day, 21:00:00',
+                '2 days, 0:00:00', '2 days, 3:00:00', '2 days, 6:00:00',
+                '2 days, 9:00:00', '2 days, 12:00:00', '2 days, 15:00:00',
+                '2 days, 18:00:00', '2 days, 21:00:00', '3 days, 0:00:00',
+                '3 days, 3:00:00']
+    # auto would usually be using longer intervals for 2 days
+    assert list(map(str, mdates.num2timedelta(locator()))) == expected
 
 
 def test_datetime64_in_list():
