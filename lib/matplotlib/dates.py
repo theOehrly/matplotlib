@@ -150,6 +150,7 @@ The available date formatters are:
 
 import datetime
 import functools
+import string
 import logging
 import math
 import re
@@ -1078,6 +1079,72 @@ class AutoDateFormatter(ticker.Formatter):
             raise TypeError('Unexpected type passed to {0!r}.'.format(self))
 
         return result
+
+
+class _TimedeltaFormatTemplate(string.Template):
+    # formatting template for datetime-like formatter strings
+    delimiter = '%'
+
+
+def strftimedelta(td, fmt_str):
+    """
+    Return a string representing a timedelta, controlled by an explicit
+    format string.
+
+    Arguments
+    ---------
+    td : datetime.timedelta
+    fmt_str : str
+        format string
+    """
+    # *_t values are not partially consumed by there next larger unit
+    # e.g. for timedelta(days=1.5): d=1, h=12, H=36
+    s_t = td.total_seconds()
+    sign = '-' if s_t < 0 else ''
+    s_t = abs(s_t)
+
+    d, s = divmod(s_t, SEC_PER_DAY)
+    m_t, s = divmod(s, SEC_PER_MIN)
+    h, m = divmod(m_t, MIN_PER_HOUR)
+    h_t, _ = divmod(s_t, SEC_PER_HOUR)
+
+    us = td.microseconds
+    ms, us = divmod(us, 1e3)
+
+    # create correctly zero padded string for substitution
+    # last one is a special for correct day(s) plural
+    values = {'d': int(d),
+              'H': int(h_t),
+              'M': int(m_t),
+              'S': int(s_t),
+              'h': '{:02d}'.format(int(h)),
+              'm': '{:02d}'.format(int(m)),
+              's': '{:02d}'.format(int(s)),
+              'ms': '{:03d}'.format(int(ms)),
+              'us': '{:03d}'.format(int(us)),
+              'day': 'day' if d == 1 else 'days'}
+
+    try:
+        result = _TimedeltaFormatTemplate(fmt_str).substitute(**values)
+    except KeyError:
+        raise ValueError(f"Invalid format string '{fmt_str}' for timedelta")
+    return sign + result
+
+
+def strftdnum(td_num, fmt_str):
+    """
+    Return a string representing a matplotlib internal float based timedelta,
+    controlled by an explicit format string.
+
+    Arguments
+    ---------
+    td_num : float
+        timedelta in matplotlib float representation
+    fmt_str : str
+        format string
+    """
+    td = num2timedelta(td_num)
+    return strftimedelta(td, fmt_str)
 
 
 class rrulewrapper:
