@@ -1147,6 +1147,372 @@ def strftdnum(td_num, fmt_str):
     return strftimedelta(td, fmt_str)
 
 
+class TimedeltaFormatter(ticker.Formatter):
+    """
+    Format a tick (in days) with a format string or using as custom
+    `.FuncFormatter`.
+
+    This `.Formatter` formats ticks according to a fixed specification.
+    Ticks can optionally be offset to generate shorter tick labels.
+
+    .. note:: The format string for timedeltas works similar to a
+        `~datetime.datetime.strftime` format string but they are NOT the
+        same and NOT compatible.
+
+    Examples
+    --------
+    .. plot::
+
+        import datetime
+        import matplotlib.dates as mdates
+
+        base = datetime.timedelta(days=100)
+        timedeltas = np.array([base + datetime.timedelta(minutes=(4 * i))
+                              for i in range(720)])
+        N = len(timedeltas)
+        np.random.seed(19680801)
+        y = np.cumsum(np.random.randn(N))
+
+        fig, ax = plt.subplots(constrained_layout=True)
+        locator = mdates.AutoTimedeltaLocator()
+        formatter = mdates.TimedeltaFormatter("%H:%m", offset_on='days',
+                                              offset_fmt="%d %day")
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+
+        ax.plot(timedeltas, y)
+        ax.set_title('Timedelta Formatter with Offset on Days')
+    """
+    # TODO explain format strings somewhere
+    def __init__(self, fmt, *, offset_on=None, offset_fmt=None, usetex=None):
+        """
+        Parameters
+        ----------
+        fmt : str or callable
+            a format string or a callable for formatting the tick values
+
+        offset_on : str, optional
+            One of ``('days', 'hours', 'minutes', 'seconds')``
+
+            Specifies how to offset large values; default is no offset.
+            If ``offset_on`` is set but ``offset_fmt`` is not, the offset will
+            be applied but not shown.
+
+        offset_fmt : str or callable
+            A format string or a callable for formatting the offset string.
+            This also requires ``offset_on`` to be specified.
+
+        usetex : bool, default: :rc:`text.usetex`
+            To enable/disable the use of TeX's math mode for rendering the
+            results of the formatter.
+        """
+        super().__init__()
+        if (offset_on is None) and (offset_fmt is not None):
+            raise ValueError("'offset_fmt' requires 'offset_on to be "
+                             "specified.'")
+        self.fmt = fmt
+        self.offset_fmt = offset_fmt
+        self.offset_on = offset_on
+        self.offset_string = ''
+        self._usetex = (usetex if usetex is not None else
+                        mpl.rcParams['text.usetex'])
+
+    def __call__(self, x, pos=None):
+        return self._format_tick(x, pos)
+
+    def _format_tick(self, x, pos=None):
+        # format a single tick value
+        if isinstance(self.fmt, str):
+            return strftdnum(x, self.fmt)
+        elif callable(self.fmt):
+            return self.fmt(x, pos)
+        else:
+            raise TypeError('Unexpected type passed to {0!r} as string '
+                            'formatter.'.format(self))
+
+    def get_offset(self):
+        return self.offset_string
+
+    def _offset_values(self, values):
+        # offset the values based on data or view limits
+        ref = min(values)
+        # evaluate data interval if available
+        # the leftmost (i.e. smallest) data value inside the view window
+        # is used as a reference value
+        # the offset is calculated so that the value of the reference is zero
+        # on the offset level
+        # Example: 1 day 12:00, 2 days 00:00, 2 days 12:00; offset on day
+        # Resulting offset: 1 day
+        # Resulting values: 0 days 12:00, 1 day 00:00, 1 day 12:00
+        if self.axis is not None:
+            data_ref = min(self.axis.get_data_interval())
+            ref = max(data_ref, ref)
+            # ref based on data if fully zoomed out else based on view
+
+        # calculate offset based on the reference value and the level
+        # specified by self.offset_on
+        if self.offset_on == 'days':
+            offset = math.floor(ref)
+        elif self.offset_on == 'hours':
+            offset = math.floor(ref*HOURS_PER_DAY)/HOURS_PER_DAY
+        elif self.offset_on == 'minutes':
+            offset = math.floor(ref*MINUTES_PER_DAY)/MINUTES_PER_DAY
+        elif self.offset_on == 'seconds':
+            offset = math.floor(ref*SEC_PER_DAY)/SEC_PER_DAY
+        else:
+            raise ValueError("Invalid value passed to {0!r} for "
+                             "'offset_on'".format(self))
+
+        # return the values with the offset applied and the offset itself
+        return [val - offset for val in values], offset
+
+    def format_ticks(self, values):
+        offset = None
+        if self.offset_on is not None:
+            # apply an offset to all values
+            values, offset = self._offset_values(values)
+        # create labels based on the values after the offset was applied
+        result = [self._format_tick(val) for val in values]
+
+        if self._usetex:
+            result = [_wrap_in_tex(label) for label in result]
+
+        if self.offset_fmt is not None:
+            # format the applied offset itself so it can be displayed
+            # as axis offset
+            if isinstance(self.offset_fmt, str):
+                offset_str = strftdnum(offset, self.offset_fmt)
+            elif callable(self.offset_fmt):
+                offset_str = self.offset_fmt(offset)
+            else:
+                raise TypeError('Unexpected type passed to {0!r} as offset '
+                                'string formatter.'.format(self))
+
+            if self._usetex:
+                offset_str = _wrap_in_tex(offset_str)
+
+            self.offset_string = offset_str
+
+        return result
+
+
+class ConciseTimedeltaFormatter(ticker.Formatter):
+    """
+    A `.Formatter` which attempts to figure out the best format to use for the
+    timedelta, and to make it as compact as possible, but still be complete.
+    This is most useful when used with the `AutoTimedeltaLocator`::
+
+    >>> locator = AutoTimedeltaLocator()
+    >>> formatter = ConciseTimedeltaFormatter(locator)
+
+    The formatter will make use of the axis offset. Depending on the tick
+    frequency of the locator, the axis offset as well as the format for ticks
+    and offset will be determined.
+
+    There are 5 tick levels. These are the same as the base units of the
+    locator. The levels are ``('days', 'hours', 'minutes', 'seconds',
+    'microseconds')``.
+    For each tick level a format string, an offset format string and the
+    offset position can be specified. Else, the defaults will be used.
+
+
+    Parameters
+    ----------
+    locator : `.Locator`
+        Locator that the axis is using.
+
+    formats : list of 5 strings, optional
+        Format strings for tick labels.
+        TODO: ref explanation of codes
+        The default is::
+
+            ["%d %day",
+             "%H:00",
+             "%H:%m",
+             "%M:%s.0",
+             "%S.%ms%us"]
+
+    offset_formats : list of 5 tuples, optional
+        A combination of ``(offset format, offset position)`` where the offset
+        format is a format string similar to the tick format string.
+        Offset position specifies on which level the offset should be applied.
+        See the ``offset_fmt=`` and ``offset_on=`` arguments of
+        `TimedeltaFormatter`.
+        The default is::
+
+            [(None, None),
+             ("%d %day", "days"),
+             ("%d %day", "days"),
+             ("%d %day, %h:00", "hours"),
+             ("%d %day, %h:%m", "minutes")]
+
+        For no offset, set both values of a level to None. To apply an offset
+        but don't show it, set only the format string to None.
+
+    show_offset : bool, default: True
+        Whether to show the offset or not.
+
+    usetex : bool, default: :rc:`text.usetex`
+        To enable/disable the use of TeX's math mode for rendering the results
+        of the formatter.
+    """
+    def __init__(self, locator, formats=None, offset_formats=None,
+                 show_offset=True, *, usetex=None):
+        self._locator = locator
+        self.defaultfmt = "%d %days"  # TODO
+        self.show_offset = show_offset
+
+        # 5 formatting levels
+        self._levels = (1,
+                        1/HOURS_PER_DAY,
+                        1/MINUTES_PER_DAY,
+                        1/SEC_PER_DAY,
+                        1/MUSECONDS_PER_DAY)
+        if formats:
+            if len(formats) != 6:
+                raise ValueError('formats argument must be a list of '
+                                 '5 format strings (or None)')
+            self.formats = formats
+        else:
+            self.formats = [
+                "%d %day",
+                "%H:00",
+                "%H:%m",
+                "%M:%s.0",
+                "%S.%ms%us"
+            ]
+
+        if offset_formats:
+            if len(offset_formats) != 5:
+                raise ValueError('offset_formats argument must be a list of '
+                                 '5 format strings (or None)')
+            self.offset_formats = offset_formats
+        else:
+            self.offset_formats = [
+                (None, None),
+                ("%d %day", "days"),
+                ("%d %day", "days"),
+                ("%d %day, %h:00", "hours"),
+                ("%d %day, %h:%m", "minutes")
+            ]
+        self.offset_str = ''
+        self._usetex = (usetex if usetex is not None else
+                        mpl.rcParams['text.usetex'])
+
+    def __call__(self, x, pos=None):
+        formatter = TimedeltaFormatter(self.defaultfmt, usetex=self._usetex)
+        return formatter(x, pos=pos)
+
+    def format_ticks(self, values):
+        try:
+            locator_unit_scale = float(self._locator._get_unit())
+        except AttributeError:
+            locator_unit_scale = 1
+        # get the level index corresponding to the locator unit scale and
+        # select the appropriate format strings and offset position
+        i = self._levels.index(locator_unit_scale)
+        fmt = self.formats[i]
+        offset_fmt, offset_on = self.offset_formats[i]
+        formatter = TimedeltaFormatter(fmt, offset_fmt=offset_fmt,
+                                       offset_on=offset_on,
+                                       usetex=self._usetex)
+        formatter.set_axis(self.axis)
+        labels = formatter.format_ticks(values)
+        if self.show_offset:
+            self.offset_str = formatter.get_offset()
+
+        return labels
+
+    def get_offset(self):
+        return self.offset_str
+
+
+class AutoTimedeltaFormatter(ticker.Formatter):
+    """
+    A `.Formatter` which attempts to figure out the best format to use. This
+    is most useful when used with the `AutoTimedeltaLocator`.
+
+    The AutoTimedeltaFormatter has a scale dictionary that maps the scale
+    of the tick (the distance in days between one major tick) and a
+    format string.  The default looks like this::
+
+        self.scaled = {
+            1: "%d %day",
+            1 / HOURS_PER_DAY: '%d %day, %h:%m',
+            1 / MINUTES_PER_DAY: '%d %day, %h:%m',
+            1 / SEC_PER_DAY: '%d %day, %h:%m:%s',
+            1e3 / MUSECONDS_PER_DAY: '%d %day, %h:%m:%s.%ms',
+            1 / MUSECONDS_PER_DAY: '%d %day, %h:%m:%s.%ms%us',
+        }
+
+    The algorithm picks the key in the dictionary that is >= the
+    current scale and uses that format string.  You can customize this
+    dictionary by doing::
+
+    >>> locator = AutoTimedeltaLocator()
+    >>> formatter = AutoTimedeltaFormatter(locator)
+    >>> formatter.scaled[1/(24.*60.)] = '%M:%S' # only show min and sec
+
+    A custom `.FuncFormatter` can also be used. See `AutoDateLocator` for an
+    example of this.
+
+    Parameters
+    ----------
+    locator : `.Locator`
+        Locator that this axis is using
+
+    defaultfmt : str
+        The default format to use if none of the values in ``self.scaled``
+        are greater than the unit returned by ``locator._get_unit()``.
+
+    usetex : bool, default: :rc:`text.usetex`
+        To enable/disable the use of TeX's math mode for rendering the
+        results of the formatter. If any entries in ``self.scaled`` are set
+        as functions, then it is up to the customized function to enable or
+        disable TeX's math mode itself.
+    """
+    def __init__(self, locator, defaultfmt='%d %day, %h:%m', *, usetex=None):
+        """
+        Autoformat the timedelta labels.
+        """
+        self._locator = locator
+        self.defaultfmt = defaultfmt
+        self._usetex = (usetex if usetex is not None else
+                        mpl.rcParams['text.usetex'])
+
+        self.scaled = {
+            1: "%d %day",
+            1 / HOURS_PER_DAY: '%d %day, %h:%m',
+            1 / MINUTES_PER_DAY: '%d %day, %h:%m',
+            1 / SEC_PER_DAY: '%d %day, %h:%m:%s',
+            1e3 / MUSECONDS_PER_DAY: '%d %day, %h:%m:%s.%ms',
+            1 / MUSECONDS_PER_DAY: '%d %day, %h:%m:%s.%ms%us',
+        }
+
+    def _set_locator(self, locator):
+        self._locator = locator
+
+    def __call__(self, x, pos=0):
+        try:
+            locator_unit_scale = float(self._locator._get_unit())
+        except AttributeError:
+            locator_unit_scale = 1
+        # Pick the first scale which is greater than the locator unit.
+        fmt = next((fmt for scale, fmt in sorted(self.scaled.items())
+                    if scale >= locator_unit_scale),
+                   self.defaultfmt)
+
+        if isinstance(fmt, str):
+            self._formatter = TimedeltaFormatter(fmt, usetex=self._usetex)
+            result = self._formatter(x, pos)
+        elif callable(fmt):
+            result = fmt(x, pos)
+        else:
+            raise TypeError('Unexpected type passed to {0!r}.'.format(self))
+
+        return result
+
+
 class rrulewrapper:
     def __init__(self, freq, tzinfo=None, **kwargs):
         kwargs['freq'] = freq
