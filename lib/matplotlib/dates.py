@@ -2757,11 +2757,67 @@ class ConciseDateConverter(DateConverter):
                               default_limits=(datemin, datemax))
 
 
+class TimedeltaConverter(units.ConversionInterface):
+    """
+    Converter for `datetime.timedelta` and `numpy.timedelta64` data.
+
+    The 'unit' tag for such data is None.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def axisinfo(self, unit, axis):
+        """
+        Return the `~matplotlib.units.AxisInfo`.
+
+        The *unit* and *axis* arguments are required but not used.
+        """
+        majloc = AutoTimedeltaLocator()
+        majfmt = AutoTimedeltaFormatter(majloc)
+        datemin = datetime.timedelta(days=1)
+        datemax = datetime.timedelta(days=2)
+
+        return units.AxisInfo(majloc=majloc, majfmt=majfmt, label='',
+                              default_limits=(datemin, datemax))
+
+    @staticmethod
+    def convert(value, unit, axis):
+        """
+        If *value* is not already a number or sequence of numbers, convert it
+        with `timedelta2num`.
+
+        The *unit* and *axis* arguments are not used.
+        """
+        return timedelta2num(value)
+
+
+class ConciseTimedeltaConverter(TimedeltaConverter):
+    # docstring inherited
+    def __init__(self, formats=None, offset_formats=None, show_offset=True):
+        super().__init__()
+        self._formats = formats
+        self._offset_formats = offset_formats
+        self._show_offset = show_offset
+
+    def axisinfo(self, unit, axis):
+        # docstring inherited
+        majloc = AutoTimedeltaLocator()
+        majfmt = ConciseTimedeltaFormatter(majloc, formats=self._formats,
+                                           offset_formats=self._offset_formats,
+                                           show_offset=self._show_offset)
+        datemin = datetime.timedelta(days=1)
+        datemax = datetime.timedelta(days=2)
+
+        return units.AxisInfo(majloc=majloc, majfmt=majfmt, label='',
+                              default_limits=(datemin, datemax))
+
+
 class _rcParam_helper:
     """
     This helper class is so that we can set the converter for dates
-    via the validator for the rcParams `date.converter` and
-    `date.interval_multiples`.  Never instatiated.
+    and timedeltas via the validator for the rcParams `date.converter` and
+    `date.interval_multiples`.  Never instantiated.
     """
 
     conv_st = 'auto'
@@ -2789,12 +2845,18 @@ class _rcParam_helper:
         above.
         """
         if cls.conv_st == 'concise':
-            converter = ConciseDateConverter
+            date_converter = ConciseDateConverter
+            timedelta_converter = ConciseTimedeltaConverter
         else:
-            converter = DateConverter
+            date_converter = DateConverter
+            timedelta_converter = TimedeltaConverter
 
         interval_multiples = cls.int_mult
-        convert = converter(interval_multiples=interval_multiples)
+        convert = date_converter(interval_multiples=interval_multiples)
         units.registry[np.datetime64] = convert
         units.registry[datetime.date] = convert
         units.registry[datetime.datetime] = convert
+
+        td_convert = timedelta_converter()
+        units.registry[np.timedelta64] = td_convert
+        units.registry[datetime.timedelta] = td_convert
