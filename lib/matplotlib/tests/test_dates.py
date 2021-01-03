@@ -1000,6 +1000,183 @@ def test_strftimedelta():
         assert mdates.strftimedelta(td, fmt) == expected
 
 
+def test_timdelta_formatter():
+    def _create_timedelta_locator(td1, td2, fmt, kwargs):
+        fig, ax = plt.subplots()
+
+        locator = mdates.AutoTimedeltaLocator()
+        formatter = mdates.TimedeltaFormatter(fmt, **kwargs)
+        ax.yaxis.set_major_locator(locator)
+        ax.yaxis.set_major_formatter(formatter)
+        ax.set_ylim(td1, td2)
+        fig.canvas.draw()
+        sts = [st.get_text() for st in ax.get_yticklabels()]
+        offset_text = ax.yaxis.get_offset_text().get_text()
+        return sts, offset_text
+
+    td1 = datetime.timedelta(days=100, hours=3, minutes=40)
+    results = ([datetime.timedelta(days=141), "%d %day", {},
+                ['100 days', '125 days', '150 days', '175 days', '200 days',
+                 '225 days', '250 days'], ""
+                ],
+               [datetime.timedelta(hours=40), "%H:%m",
+                {'offset_fmt': '%d %day', 'offset_on': 'days'},
+                ['0:00', '8:00', '16:00', '24:00', '32:00', '40:00', '48:00'],
+                "100 days"
+                ],
+               [datetime.timedelta(minutes=30), "%M:%s.0",
+                {'offset_fmt': '%d %day, %h:%m', 'offset_on': 'hours'},
+                ['35:00.0', '40:00.0', '45:00.0', '50:00.0', '55:00.0',
+                 '60:00.0', '65:00.0', '70:00.0', '75:00.0'],
+                "100 days, 03:00"
+                ],
+               [datetime.timedelta(seconds=30), "%S.%ms",
+                {'offset_fmt': '%d %day, %h:%m', 'offset_on': 'minutes'},
+                ['55.000', '60.000', '65.000', '70.000', '75.000', '80.000',
+                 '85.000', '90.000', '95.000'],
+                "100 days, 03:39"
+                ],
+               [datetime.timedelta(microseconds=600), "%S.%ms%us",
+                {'offset_fmt': '%d %day, %h:%m:%s', 'offset_on': 'seconds'},
+                ['0.999900', '1.000000', '1.000100', '1.000200', '1.000300',
+                 '1.000400', '1.000500', '1.000600', '1.000700'],
+                "100 days, 03:39:59"
+                ],
+               )
+    for t_delta, fmt, kwargs, expected, expected_offset in results:
+        td2 = td1 + t_delta
+        strings, offset_string = _create_timedelta_locator(
+            td1, td2, fmt, kwargs
+        )
+        assert strings == expected
+        assert offset_string == expected_offset
+
+
+def test_timedelta_formatter_usetex():
+    formatter = mdates.TimedeltaFormatter("%h:%m", offset_on='days',
+                                          offset_fmt="%d %day", usetex=True)
+    values = [datetime.timedelta(days=0, hours=12),
+              datetime.timedelta(days=1, hours=0),
+              datetime.timedelta(days=1, hours=12),
+              datetime.timedelta(days=2, hours=0)]
+
+    labels = formatter.format_ticks(mdates.timedelta2num(values))
+
+    start = '$\\mathdefault{'
+    i_start = len(start)
+    end = '}$'
+    i_end = -len(end)
+
+    def verify(string):
+        assert string[:i_start] == start
+        assert string[i_end:] == end
+
+    # assert ticks are tex formatted
+    for lbl in labels:
+        verify(lbl)
+
+    # assert offset is tex formatted
+    verify(formatter.get_offset())
+
+
+def test_concise_timedelta_formatter():
+    def _create_concise_timedelta_locator(td1, td2):
+        fig, ax = plt.subplots()
+
+        locator = mdates.AutoTimedeltaLocator()
+        formatter = mdates.ConciseTimedeltaFormatter(locator)
+        ax.yaxis.set_major_locator(locator)
+        ax.yaxis.set_major_formatter(formatter)
+        ax.set_ylim(td1, td2)
+        fig.canvas.draw()
+        sts = [st.get_text() for st in ax.get_yticklabels()]
+        offset_text = ax.yaxis.get_offset_text().get_text()
+        return sts, offset_text
+
+    td1 = datetime.timedelta(days=100, hours=3, minutes=40)
+    results = ([datetime.timedelta(days=141),
+                ['100 days', '125 days', '150 days', '175 days', '200 days',
+                 '225 days', '250 days'], ""
+                ],
+               [datetime.timedelta(hours=40),
+                ['0:00', '8:00', '16:00', '24:00', '32:00', '40:00', '48:00'],
+                "100 days"
+                ],
+               [datetime.timedelta(minutes=30),
+                ['3:35', '3:40', '3:45', '3:50', '3:55', '4:00',
+                 '4:05', '4:10', '4:15'],
+                "100 days"
+                ],
+               [datetime.timedelta(seconds=30),
+                ['39:55.0', '40:00.0', '40:05.0', '40:10.0', '40:15.0',
+                 '40:20.0', '40:25.0', '40:30.0', '40:35.0'],
+                "100 days, 03:00"
+                ],
+               [datetime.timedelta(microseconds=600),
+                ['59.999900', '60.000000', '60.000100', '60.000200',
+                 '60.000300', '60.000400', '60.000500', '60.000600',
+                 '60.000700'], "100 days, 03:39"
+                ],
+               )
+    for t_delta, expected, expected_offset in results:
+        td2 = td1 + t_delta
+        strings, offset_string = _create_concise_timedelta_locator(td1, td2)
+        assert strings == expected
+        assert offset_string == expected_offset
+
+
+def test_auto_timedelta_formatter():
+    def _create_auto_timedelta_locator(td1, td2):
+        fig, ax = plt.subplots()
+
+        locator = mdates.AutoTimedeltaLocator()
+        formatter = mdates.AutoTimedeltaFormatter(locator)
+        ax.yaxis.set_major_locator(locator)
+        ax.yaxis.set_major_formatter(formatter)
+        ax.set_ylim(td1, td2)
+        fig.canvas.draw()
+        sts = [st.get_text() for st in ax.get_yticklabels()]
+        offset_text = ax.yaxis.get_offset_text().get_text()
+        return sts, offset_text
+
+    td1 = datetime.timedelta(days=100, hours=3, minutes=40)
+    results = ([datetime.timedelta(days=141),
+                ['100 days', '125 days', '150 days', '175 days', '200 days',
+                 '225 days', '250 days'], ""
+                ],
+               [datetime.timedelta(hours=40),
+                ['100 days, 00:00', '100 days, 08:00', '100 days, 16:00',
+                 '101 days, 00:00', '101 days, 08:00', '101 days, 16:00',
+                 '102 days, 00:00'], ""
+                ],
+               [datetime.timedelta(minutes=30),
+                ['100 days, 03:35', '100 days, 03:40', '100 days, 03:45',
+                 '100 days, 03:50', '100 days, 03:55', '100 days, 04:00',
+                 '100 days, 04:05', '100 days, 04:10',  '100 days, 04:15'],
+                ""
+                ],
+               [datetime.timedelta(seconds=30),
+                ['100 days, 03:39:55', '100 days, 03:40:00',
+                 '100 days, 03:40:05', '100 days, 03:40:10',
+                 '100 days, 03:40:15', '100 days, 03:40:20',
+                 '100 days, 03:40:25', '100 days, 03:40:30',
+                 '100 days, 03:40:35'], ""
+                ],
+               [datetime.timedelta(microseconds=600),
+                ['100 days, 03:39:59.999900', '100 days, 03:40:00.000000',
+                 '100 days, 03:40:00.000100', '100 days, 03:40:00.000200',
+                 '100 days, 03:40:00.000300', '100 days, 03:40:00.000400',
+                 '100 days, 03:40:00.000500', '100 days, 03:40:00.000600',
+                 '100 days, 03:40:00.000700'], ""
+                ],
+               )
+    for t_delta, expected, expected_offset in results:
+        td2 = td1 + t_delta
+        strings, offset_string = _create_auto_timedelta_locator(td1, td2)
+        assert strings == expected
+        assert offset_string == expected_offset
+
+
 def test_num2timedelta():
     results = [(1, datetime.timedelta(days=1)),
                ([1, 1.5], [datetime.timedelta(days=1),
