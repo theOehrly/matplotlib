@@ -167,7 +167,6 @@ import matplotlib as mpl
 from matplotlib import _api, cbook, ticker, units
 
 __all__ = ('datestr2num', 'date2num', 'num2date', 'num2timedelta', 'drange',
-           'timedelta2num', 'pd_timedelta2np',
            'epoch2num', 'num2epoch', 'set_epoch', 'get_epoch', 'DateFormatter',
            'ConciseDateFormatter', 'IndexDateFormatter', 'AutoDateFormatter',
            'TimedeltaFormatter', 'ConciseTimedeltaFormatter',
@@ -315,32 +314,6 @@ def _dt64_to_ordinalf(d):
     return dt
 
 
-def _td64_to_ordinalf(d):
-    """
-    Convert `numpy.timedelta64` or an ndarray of those types to a number of
-    days as float. Roundoff is float64 precision. Practically: microseconds
-    for up to 292271 years, milliseconds for larger time spans.
-    (see `numpy.timedelta64`).
-    """
-
-    # the "extra" ensures that we at least allow the dynamic range out to
-    # seconds.  That should get out to +/-2e11 years.
-    dseconds = d.astype('timedelta64[s]')
-    extra = (d - dseconds).astype('timedelta64[ns]')
-    dt = dseconds.astype(np.float64)
-    dt += extra.astype(np.float64) / 1.0e9
-    dt = dt / SEC_PER_DAY
-
-    NaT_int = np.timedelta64('NaT').astype(np.int64)
-    d_int = d.astype(np.int64)
-    try:
-        dt[d_int == NaT_int] = np.nan
-    except TypeError:
-        if d_int == NaT_int:
-            dt = np.nan
-    return dt
-
-
 def _from_ordinalf(x, tz=None):
     """
     Convert Gregorian float of the date, preserving hours, minutes,
@@ -415,19 +388,28 @@ def datestr2num(d, default=None):
 
 def date2num(d):
     """
-    Convert datetime objects to Matplotlib dates.
+    Convert datetime and timedelta objects to Matplotlib dates.
+
+    Supported:
+        - `numpy.datetime64`/`numpy.timedelta64` (both including 'nat')
+        - `datetime.datetime`/`datetime.timedelta`
+        - `pandas.Timestamp`/`pandas.Timedelta`/`pandas.NaT`
 
     Parameters
     ----------
-    d : `datetime.datetime` or `numpy.datetime64` or sequences of these
+    d : ``datetime-like`` or ``timedelta-like`` or sequences of these
 
     Returns
     -------
     float or sequence of floats
-        Number of days since the epoch.  See `.get_epoch` for the
-        epoch, which can be changed by :rc:`date.epoch` or `.set_epoch`.  If
-        the epoch is "1970-01-01T00:00:00" (default) then noon Jan 1 1970
-        ("1970-01-01T12:00:00") returns 0.5.
+        For dates:
+            Number of days since the epoch.  See `.get_epoch` for the
+            epoch, which can be changed by :rc:`date.epoch` or `.set_epoch`. If
+            the epoch is "1970-01-01T00:00:00" (default) then noon Jan 1 1970
+            ("1970-01-01T12:00:00") returns 0.5.
+
+        For timedeltas:
+            Number of days as float
 
     Notes
     -----
@@ -444,9 +426,11 @@ def date2num(d):
         d = [d]
 
     d = np.asarray(d)
-    # convert to datetime64 arrays, if not already:
-    if not np.issubdtype(d.dtype, np.datetime64):
-        # datetime arrays
+    if np.issubdtype(d.dtype, np.timedelta64):
+        # numpy converts this to datetime but not the way we want
+        d = d.astype('timedelta64[us]')
+    elif not np.issubdtype(d.dtype, np.datetime64):
+        # handle everything that is not np.timedelta64
         if not d.size:
             # deals with an empty array...
             return d
@@ -455,11 +439,62 @@ def date2num(d):
             # make datetime naive:
             d = [dt.astimezone(UTC).replace(tzinfo=None) for dt in d]
             d = np.asarray(d)
-        d = d.astype('datetime64[us]')
+
+        # try conversion to datetime or timedelta
+        for _dtype in ('datetime64[us]', 'timedelta64[us]'):
+            try:
+                d = d.astype(_dtype)
+                break
+            except ValueError:
+                continue
+        else:
+            # maybe the sequence contained pandas.NaT
+            first = cbook.safe_first_element(d)
+            if hasattr(first, 'to_numpy'):
+                # assume sequence of pandas objects including pandas.NaT
+                # element-wise conversion is required
+                d = _try_pandas_nat_conversion(d)
+
+    # convert timedelta to datetime now for internal handling
+    if np.issubdtype(d.dtype, np.timedelta64):
+        epoch = np.full_like(d, np.datetime64(get_epoch()))
+        d = (epoch + d).astype('datetime64[us]')
 
     d = _dt64_to_ordinalf(d)
 
     return d if iterable else d[0]
+
+
+def _try_pandas_nat_conversion(d):
+    # helper function to convert sequences of pandas objects where at least
+    # one object is pandas.NaT
+    conv = list()  # list of converted values
+    nat = list()  # mask for nat positions
+
+    # convert element-wise
+    for elem in d:
+        c = elem.to_numpy()
+        conv.append(c)
+        if np.isnat(c):
+            nat.append(True)
+        else:
+            nat.append(False)
+
+    # pandas.NaT.to_numpy always returns numpy.datetime64('nat'). If the
+    # other values are datetime too, the sequence can be converted to an array.
+    # Else datetime64('nat') is replace with timedelta64('nat').
+    try:
+        conv = np.array(conv)  # fails if not homogenous dtype
+    except ValueError:
+        # pandas.NaT.to_numpy() always converts to datetime64
+        # if the array contains various dtypes, replace with timedelta
+        conv = np.array(conv, dtype='object')
+        conv[nat] = np.timedelta64('nat')
+
+    if np.issubdtype(conv.dtype, np.datetime64):
+        return conv.astype('datetime64[us]')
+    else:
+        return conv.astype('timedelta64[us]')
 
 
 def julian2num(j):
@@ -483,49 +518,6 @@ def julian2num(j):
     # relative to our current epoch:
     dt = JULIAN_OFFSET - ep0 + ep
     return np.subtract(j, dt)  # Handles both scalar & nonscalar j.
-
-
-def timedelta2num(t):
-    """
-    Convert timedelta objects to Matplotlib timedeltas.
-
-    Parameters
-    ----------
-    t : `datetime.timedelta`, `numpy.timedelta64` or `pandas.Timedelta`
-        or sequences of these
-
-    Returns
-    -------
-    float or sequence of floats
-        Number of days
-    """
-    if hasattr(t, "values"):
-        # this unpacks pandas series or dataframes...
-        t = t.values
-
-    # make an iterable, but save state to unpack later:
-    iterable = np.iterable(t)
-    if not iterable:
-        t = [t]
-
-    t = np.asarray(t)
-    # convert to datetime64 arrays, if not already:
-    if not np.issubdtype(t.dtype, np.timedelta64):
-        # datetime arrays
-        if not t.size:
-            # deals with an empty array...
-            return t
-        try:
-            t = t.astype('timedelta64[us]')
-        except Exception as e:
-            try:  # try pandas specific conversion
-                t = pd_timedelta2np(t).astype('timedelta64[us]')
-            except Exception as _:
-                raise e  # wasn't pandas; raise original exception
-
-    t = _td64_to_ordinalf(t)
-
-    return t if iterable else t[0]
 
 
 def num2julian(n):
@@ -603,36 +595,6 @@ def num2timedelta(x):
     `datetime.timedelta` or list[`datetime.timedelta`]
     """
     return _ordinalf_to_timedelta_np_vectorized(x).tolist()
-
-
-def pd_timedelta2np(t):
-    """
-    Convert `pandas.Timedelta` objects to `numpy.timedelta64`
-
-    Parameters
-    ----------
-    t: `pandas.Timedelta` or `pandas.NaT` or sequences of these
-
-    Returns
-    -------
-    `numpy.timedelta64` or sequence of `numpy.timedelta64`
-    """
-    iterable = np.iterable(t)
-    if not iterable:
-        t = [t]
-
-    conv = list()
-    for val in t:
-        c = val.to_numpy()
-        if np.isnat(c):
-            # pandas.NaT.to_numpy() returns datetime64('nat')
-            # but here we need timedelta64('nat')
-            conv.append(np.timedelta64('nat'))
-        else:
-            conv.append(c)
-
-    t = np.asarray(conv)
-    return t if iterable else t[0]
 
 
 def drange(dstart, dend, delta):
@@ -2380,8 +2342,8 @@ class TimedeltaLocator(ticker.MultipleLocator):
         """
         if not np.isfinite(vmin) or not np.isfinite(vmax):
             # Except if there is no data, then use 1 day - 2 days as default.
-            return (timedelta2num(datetime.timedelta(days=1)),
-                    timedelta2num(datetime.timedelta(days=2)))
+            return (date2num(datetime.timedelta(days=1)),
+                    date2num(datetime.timedelta(days=2)))
         if vmax < vmin:
             vmin, vmax = vmax, vmin
         unit = self._get_unit()
@@ -2433,8 +2395,8 @@ class FixedTimedeltaLocator(TimedeltaLocator):
     def nonsingular(self, vmin, vmax):
         if not np.isfinite(vmin) or not np.isfinite(vmax):
             # Except if there is no data, then use 1 day - 2 days as default.
-            return (timedelta2num(datetime.timedelta(days=1)),
-                    timedelta2num(datetime.timedelta(days=2)))
+            return (date2num(datetime.timedelta(days=1)),
+                    date2num(datetime.timedelta(days=2)))
         if vmax < vmin:
             vmin, vmax = vmax, vmin
         unit = self._get_unit()
@@ -2524,8 +2486,8 @@ class AutoTimedeltaLocator(TimedeltaLocator):
         # But default nonsingular date plots at an ~4 day period.
         if not np.isfinite(vmin) or not np.isfinite(vmax):
             # Except if there is no data, then use 1 day - 2 days as default.
-            return (timedelta2num(datetime.timedelta(days=1)),
-                    timedelta2num(datetime.timedelta(days=2)))
+            return (date2num(datetime.timedelta(days=1)),
+                    date2num(datetime.timedelta(days=2)))
         if vmax < vmin:
             vmin, vmax = vmax, vmin
         if vmin == vmax:
@@ -2556,7 +2518,7 @@ class AutoTimedeltaLocator(TimedeltaLocator):
         if vmin > vmax:
             tdelta = -tdelta
 
-        tdelta = timedelta2num(tdelta)
+        tdelta = date2num(tdelta)
 
         # find an appropriate base unit and interval for it
         base = self._get_base(tdelta)
@@ -2789,11 +2751,11 @@ class TimedeltaConverter(units.ConversionInterface):
     def convert(value, unit, axis):
         """
         If *value* is not already a number or sequence of numbers, convert it
-        with `timedelta2num`.
+        with `date2num`.
 
         The *unit* and *axis* arguments are not used.
         """
-        return timedelta2num(value)
+        return date2num(value)
 
 
 class ConciseTimedeltaConverter(TimedeltaConverter):

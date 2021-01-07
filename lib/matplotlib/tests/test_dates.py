@@ -1060,7 +1060,7 @@ def test_timedelta_formatter_usetex():
               datetime.timedelta(days=1, hours=12),
               datetime.timedelta(days=2, hours=0)]
 
-    labels = formatter.format_ticks(mdates.timedelta2num(values))
+    labels = formatter.format_ticks(mdates.date2num(values))
 
     start = '$\\mathdefault{'
     i_start = len(start)
@@ -1187,44 +1187,45 @@ def test_num2timedelta():
         assert dt == tdelta
 
 
-def test_pd_timedelta2np(pd):
-    pd_td = [pd.Timedelta(seconds=1), pd.NaT]
-    td = np.array([np.timedelta64(1, 's'),
-                   np.timedelta64('nat')])
-    converted = mdates.pd_timedelta2np(pd_td)
-    np.testing.assert_array_equal(td, converted)
+def test_date2num_timedelta(pd):
+    cases = ((1, datetime.timedelta(days=1)),
+             (0.25, datetime.timedelta(hours=6)),
+             (3 / 86400 / 1000, datetime.timedelta(milliseconds=3)),
+             ([1, 1.5], [datetime.timedelta(days=1),
+                         datetime.timedelta(days=1.5)]),
+             (np.nan, np.timedelta64('nat')),
+             (2, np.timedelta64(2, 'D')),
+             (0.25, np.timedelta64(6, 'h')),
+             (3 / 86400 / 1000, np.timedelta64(3, 'ms')),
+             ([1, 2], [np.timedelta64(1, 'D'),
+                       np.timedelta64(2, 'D')]),
+             (2, pd.Timedelta(days=2)),
+             (0.25, pd.Timedelta(hours=6)),
+             (3 / 86400 / 1000, pd.Timedelta(milliseconds=3)),
+             ([1, 1.5], [pd.Timedelta(days=1),
+                         pd.Timedelta(days=1.5)])
+             )
+
+    for expected, tdelta in cases:
+        np.testing.assert_equal(mdates.date2num(tdelta), expected)
 
 
-def test_timedelta2num():
-    results = [(1, datetime.timedelta(days=1)),
-               (0.25, datetime.timedelta(hours=6)),
-               (3 / 86400 / 1000, datetime.timedelta(milliseconds=3)),
-               (np.nan, np.timedelta64('nat')),
-               ([1, 1.5], [datetime.timedelta(days=1),
-                           datetime.timedelta(days=1.5)])]
-    for x, tdelta in results:
-        np.testing.assert_equal(x, mdates.timedelta2num(tdelta))
-
-
-def test_timedelta2num_pandas(pd):
-    results = [(2, {'days': 2}),
-               (0.25, {'hours': 6}),
-               (3 / 86400 / 1000, {'milliseconds': 3})]
-    for x, td_kwargs in results:
-        pd_td = pd.Timedelta(**td_kwargs)
-        np.testing.assert_equal(x, mdates.timedelta2num(pd_td))
-
-
-def test_timedelta2num_pandas_nat(pd):
-    assert np.isnan(mdates.timedelta2num(pd.NaT))
+def test_date2num_pandas_nat(pd):
+    cases = (
+        (pd.NaT, np.nan),
+        ([pd.NaT, pd.Timedelta(days=1)], [np.nan, 1.0]),
+        ([pd.Timestamp('1970-01-03'), pd.NaT], [2.0, np.nan])
+    )
+    for x, expected in cases:
+        np.testing.assert_equal(mdates.date2num(x), expected)
 
 
 def test_auto_timedelta_locator():
     def _create_auto_timedelta_locator(delta1, delta2):
         locator = mdates.AutoTimedeltaLocator()
         locator.create_dummy_axis()
-        locator.set_view_interval(mdates.timedelta2num(delta1),
-                                  mdates.timedelta2num(delta2))
+        locator.set_view_interval(mdates.date2num(delta1),
+                                  mdates.date2num(delta2))
         return locator
 
     dt1 = datetime.timedelta(days=100)
@@ -1292,7 +1293,7 @@ def test_fixed_timedelta_locator():
         dt1 = dt0 + datetime.timedelta(days=tdelta)
         locator = mdates.FixedTimedeltaLocator(base, interval)
         locator.create_dummy_axis()
-        locator.set_view_interval(*mdates.timedelta2num([dt0, dt1]))
+        locator.set_view_interval(*mdates.date2num([dt0, dt1]))
         assert list(map(str, mdates.num2timedelta(locator()))) == expected
 
 
@@ -1302,8 +1303,8 @@ def test_auto_modified_intervald():
     locator.create_dummy_axis()
     dt1 = datetime.timedelta(days=1)
     dt2 = datetime.timedelta(days=3)
-    locator.set_view_interval(mdates.timedelta2num(dt1),
-                              mdates.timedelta2num(dt2))
+    locator.set_view_interval(mdates.date2num(dt1),
+                              mdates.date2num(dt2))
     expected = ['21:00:00', '1 day, 0:00:00', '1 day, 3:00:00',
                 '1 day, 6:00:00', '1 day, 9:00:00', '1 day, 12:00:00',
                 '1 day, 15:00:00', '1 day, 18:00:00', '1 day, 21:00:00',
