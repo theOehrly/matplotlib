@@ -426,75 +426,48 @@ def date2num(d):
         d = [d]
 
     d = np.asarray(d)
-    if np.issubdtype(d.dtype, np.timedelta64):
-        # numpy converts this to datetime but not the way we want
-        d = d.astype('timedelta64[us]')
-    elif not np.issubdtype(d.dtype, np.datetime64):
-        # handle everything that is not np.timedelta64
-        if not d.size:
-            # deals with an empty array...
-            return d
+    if not d.size:
+        # deals with an empty array...
+        return d
+
+    if hasattr(d.take(0), 'value'):
+        # elements are pandas objects; temporarily convert data to numbers
+        # pandas nat is defined as the minimum value of int64,
+        # replace all 'min int' values with the string 'nat' and convert the
+        # array to the dtype of the first non-nat value
+        values = np.asarray([x.value for x in d], dtype='object')
+        nat_mask = (np.iinfo('int64').min == values)
+        if not all(nat_mask):
+            _dtype = d[~nat_mask].take(0).to_numpy().dtype
+        else:
+            _dtype = 'timedelta64[us]'  # default in case of all NaT
+        d = np.where(nat_mask, 'nat', values).astype(_dtype)
+
+    # convert to datetime64 or timedelta64 arrays, if not already:
+    if not (np.issubdtype(d.dtype, np.datetime64) or
+            np.issubdtype(d.dtype, np.timedelta64)):
+        # datetime arrays
         tzi = getattr(d[0], 'tzinfo', None)
         if tzi is not None:
             # make datetime naive:
             d = [dt.astimezone(UTC).replace(tzinfo=None) for dt in d]
             d = np.asarray(d)
 
-        # try conversion to datetime or timedelta
-        for _dtype in ('datetime64[us]', 'timedelta64[us]'):
-            try:
-                d = d.astype(_dtype)
-                break
-            except ValueError:
-                continue
+        if isinstance(d.take(0), datetime.date):  # test first element
+            d = d.astype('datetime64[us]')
         else:
-            # maybe the sequence contained pandas.NaT
-            first = cbook.safe_first_element(d)
-            if hasattr(first, 'to_numpy'):
-                # assume sequence of pandas objects including pandas.NaT
-                # element-wise conversion is required
-                d = _try_pandas_nat_conversion(d)
+            d = d.astype('timedelta64[us]')
 
     # convert timedelta to datetime now for internal handling
     if np.issubdtype(d.dtype, np.timedelta64):
-        epoch = np.full_like(d, np.datetime64(get_epoch()))
+        d = d.astype('timedelta64[us]')
+        epoch = np.full_like(d, np.datetime64(get_epoch()),
+                             dtype='datetime64[us]')
         d = (epoch + d).astype('datetime64[us]')
 
     d = _dt64_to_ordinalf(d)
 
     return d if iterable else d[0]
-
-
-def _try_pandas_nat_conversion(d):
-    # helper function to convert sequences of pandas objects where at least
-    # one object is pandas.NaT
-    conv = list()  # list of converted values
-    nat = list()  # mask for nat positions
-
-    # convert element-wise
-    for elem in d:
-        c = elem.to_numpy()
-        conv.append(c)
-        if np.isnat(c):
-            nat.append(True)
-        else:
-            nat.append(False)
-
-    # pandas.NaT.to_numpy always returns numpy.datetime64('nat'). If the
-    # other values are datetime too, the sequence can be converted to an array.
-    # Else datetime64('nat') is replace with timedelta64('nat').
-    try:
-        conv = np.array(conv)  # fails if not homogenous dtype
-    except ValueError:
-        # pandas.NaT.to_numpy() always converts to datetime64
-        # if the array contains various dtypes, replace with timedelta
-        conv = np.array(conv, dtype='object')
-        conv[nat] = np.timedelta64('nat')
-
-    if np.issubdtype(conv.dtype, np.datetime64):
-        return conv.astype('datetime64[us]')
-    else:
-        return conv.astype('timedelta64[us]')
 
 
 def julian2num(j):
