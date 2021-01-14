@@ -1203,7 +1203,8 @@ def test_date2num_timedelta(pd):
              (0.25, pd.Timedelta(hours=6)),
              (3 / 86400 / 1000, pd.Timedelta(milliseconds=3)),
              ([1, 1.5], [pd.Timedelta(days=1),
-                         pd.Timedelta(days=1.5)])
+                         pd.Timedelta(days=1.5)]),
+             ([], [])  # test
              )
 
     for expected, tdelta in cases:
@@ -1295,6 +1296,15 @@ def test_fixed_timedelta_locator():
         locator.create_dummy_axis()
         locator.set_view_interval(*mdates.date2num([dt0, dt1]))
         assert list(map(str, mdates.num2timedelta(locator()))) == expected
+
+
+def test_timedelta_epoch_independent():
+    # timedelta is handled as datetime internally
+    # make sure this is independent of the epoch
+    mdates._reset_epoch_test_example()
+    mdates.set_epoch("2000-01-01T00:00")
+    test_auto_timedelta_locator()
+    mdates._reset_epoch_test_example()
 
 
 def test_auto_modified_intervald():
