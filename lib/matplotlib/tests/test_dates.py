@@ -1016,25 +1016,29 @@ def test_timdelta_formatter():
 
     td1 = datetime.timedelta(days=100, hours=3, minutes=40)
     results = ([datetime.timedelta(days=141), "%d %day", {},
-                ['100 days', '125 days', '150 days', '175 days', '200 days',
-                 '225 days', '250 days'], ""
+                ['100 days', '120 days', '140 days',
+                 '160 days', '180 days', '200 days',
+                 '220 days', '240 days', '260 days'], ""
                 ],
                [datetime.timedelta(hours=40), "%H:%m",
                 {'offset_fmt': '%d %day', 'offset_on': 'days'},
-                ['0:00', '8:00', '16:00', '24:00', '32:00', '40:00', '48:00'],
+                ['4:00', '8:00',
+                 '12:00', '16:00', '20:00', '24:00',
+                 '28:00', '32:00', '36:00', '40:00'],
                 "100 days"
                 ],
                [datetime.timedelta(minutes=30), "%M:%s.0",
                 {'offset_fmt': '%d %day, %h:%m', 'offset_on': 'hours'},
-                ['35:00.0', '40:00.0', '45:00.0', '50:00.0', '55:00.0',
-                 '60:00.0', '65:00.0', '70:00.0', '75:00.0'],
+                ['42:00.0', '45:00.0', '48:00.0', '51:00.0', '54:00.0',
+                 '57:00.0', '60:00.0', '63:00.0', '66:00.0', '69:00.0'],
                 "100 days, 03:00"
                 ],
                [datetime.timedelta(seconds=30), "%S.%ms",
                 {'offset_fmt': '%d %day, %h:%m', 'offset_on': 'minutes'},
-                ['55.000', '60.000', '65.000', '70.000', '75.000', '80.000',
-                 '85.000', '90.000', '95.000'],
-                "100 days, 03:39"
+                ['0.000', '3.000', '6.000', '9.000',
+                 '12.000', '15.000', '18.000', '21.000',
+                 '24.000', '27.000', '30.000'],
+                "100 days, 03:40"
                 ],
                [datetime.timedelta(microseconds=600), "%S.%ms%us",
                 {'offset_fmt': '%d %day, %h:%m:%s', 'offset_on': 'seconds'},
@@ -1095,21 +1099,24 @@ def test_concise_timedelta_formatter():
 
     td1 = datetime.timedelta(days=100, hours=3, minutes=40)
     results = ([datetime.timedelta(days=141),
-                ['100 days', '125 days', '150 days', '175 days', '200 days',
-                 '225 days', '250 days'], ""
+                ['100 days', '120 days', '140 days', '160 days', '180 days',
+                 '200 days', '220 days', '240 days', '260 days'],
+                ""
                 ],
                [datetime.timedelta(hours=40),
-                ['0:00', '8:00', '16:00', '24:00', '32:00', '40:00', '48:00'],
+                ['4:00', '8:00', '12:00', '16:00', '20:00',
+                 '24:00', '28:00', '32:00', '36:00', '40:00'],
                 "100 days"
                 ],
                [datetime.timedelta(minutes=30),
-                ['3:35', '3:40', '3:45', '3:50', '3:55', '4:00',
-                 '4:05', '4:10', '4:15'],
+                ['3:42', '3:45', '3:48', '3:51', '3:54',
+                 '3:57', '4:00', '4:03', '4:06', '4:09'],
                 "100 days"
                 ],
                [datetime.timedelta(seconds=30),
-                ['39:55.0', '40:00.0', '40:05.0', '40:10.0', '40:15.0',
-                 '40:20.0', '40:25.0', '40:30.0', '40:35.0'],
+                ['40:00.0', '40:03.0', '40:06.0', '40:09.0',
+                 '40:12.0', '40:15.0', '40:18.0', '40:21.0',
+                 '40:24.0', '40:27.0', '40:30.0'],
                 "100 days, 03:00"
                 ],
                [datetime.timedelta(microseconds=600),
@@ -1141,40 +1148,42 @@ def test_auto_timedelta_formatter():
 
     td1 = datetime.timedelta(days=100, hours=3, minutes=40)
     results = ([datetime.timedelta(days=141),
-                ['100 days', '125 days', '150 days', '175 days', '200 days',
-                 '225 days', '250 days'], ""
+                ['100 days', '120 days', '140 days', '160 days', '180 days',
+                 '200 days', '220 days', '240 days', '260 days']
                 ],
                [datetime.timedelta(hours=40),
-                ['100 days, 00:00', '100 days, 08:00', '100 days, 16:00',
-                 '101 days, 00:00', '101 days, 08:00', '101 days, 16:00',
-                 '102 days, 00:00'], ""
+                ['100 days, 04:00', '100 days, 08:00', '100 days, 12:00',
+                 '100 days, 16:00', '100 days, 20:00', '101 days, 00:00',
+                 '101 days, 04:00', '101 days, 08:00', '101 days, 12:00',
+                 '101 days, 16:00']
                 ],
                [datetime.timedelta(minutes=30),
-                ['100 days, 03:35', '100 days, 03:40', '100 days, 03:45',
-                 '100 days, 03:50', '100 days, 03:55', '100 days, 04:00',
-                 '100 days, 04:05', '100 days, 04:10',  '100 days, 04:15'],
-                ""
+                ['100 days, 03:42', '100 days, 03:45', '100 days, 03:48',
+                 '100 days, 03:51', '100 days, 03:54', '100 days, 03:57',
+                 '100 days, 04:00', '100 days, 04:03', '100 days, 04:06',
+                 '100 days, 04:09'],
                 ],
                [datetime.timedelta(seconds=30),
-                ['100 days, 03:39:55', '100 days, 03:40:00',
-                 '100 days, 03:40:05', '100 days, 03:40:10',
-                 '100 days, 03:40:15', '100 days, 03:40:20',
-                 '100 days, 03:40:25', '100 days, 03:40:30',
-                 '100 days, 03:40:35'], ""
+                ['100 days, 03:40:00', '100 days, 03:40:03',
+                 '100 days, 03:40:06', '100 days, 03:40:09',
+                 '100 days, 03:40:12', '100 days, 03:40:15',
+                 '100 days, 03:40:18', '100 days, 03:40:21',
+                 '100 days, 03:40:24', '100 days, 03:40:27',
+                 '100 days, 03:40:30']
                 ],
                [datetime.timedelta(microseconds=600),
                 ['100 days, 03:39:59.999900', '100 days, 03:40:00.000000',
                  '100 days, 03:40:00.000100', '100 days, 03:40:00.000200',
                  '100 days, 03:40:00.000300', '100 days, 03:40:00.000400',
                  '100 days, 03:40:00.000500', '100 days, 03:40:00.000600',
-                 '100 days, 03:40:00.000700'], ""
+                 '100 days, 03:40:00.000700']
                 ],
                )
-    for t_delta, expected, expected_offset in results:
+    for t_delta, expected in results:
         td2 = td1 + t_delta
         strings, offset_string = _create_auto_timedelta_locator(td1, td2)
         assert strings == expected
-        assert offset_string == expected_offset
+        assert offset_string == ""
 
 
 def test_num2timedelta():
@@ -1231,38 +1240,33 @@ def test_auto_timedelta_locator():
 
     dt1 = datetime.timedelta(days=100)
     results = ([datetime.timedelta(days=141),
-                ['75 days, 0:00:00', '100 days, 0:00:00',
-                 '125 days, 0:00:00', '150 days, 0:00:00',
-                 '175 days, 0:00:00', '200 days, 0:00:00',
-                 '225 days, 0:00:00', '250 days, 0:00:00'],
+                ['100 days, 0:00:00', '120 days, 0:00:00', '140 days, 0:00:00',
+                 '160 days, 0:00:00', '180 days, 0:00:00', '200 days, 0:00:00',
+                 '220 days, 0:00:00', '240 days, 0:00:00', '260 days, 0:00:00']
                 ],
                [datetime.timedelta(hours=40),
-                ['99 days, 16:00:00', '100 days, 0:00:00',
-                 '100 days, 8:00:00', '100 days, 16:00:00',
-                 '101 days, 0:00:00', '101 days, 8:00:00',
-                 '101 days, 16:00:00', '102 days, 0:00:00'],
+                ['100 days, 0:00:00', '100 days, 4:00:00',
+                 '100 days, 8:00:00', '100 days, 12:00:00',
+                 '100 days, 16:00:00', '100 days, 20:00:00',
+                 '101 days, 0:00:00', '101 days, 4:00:00',
+                 '101 days, 8:00:00', '101 days, 12:00:00',
+                 '101 days, 16:00:00']
                 ],
                [datetime.timedelta(minutes=20),
-                ['99 days, 23:57:00', '100 days, 0:00:00',
-                 '100 days, 0:03:00', '100 days, 0:06:00',
-                 '100 days, 0:09:00', '100 days, 0:12:00',
-                 '100 days, 0:15:00', '100 days, 0:18:00',
-                 '100 days, 0:21:00']
+                ['100 days, 0:00:00', '100 days, 0:02:00', '100 days, 0:04:00',
+                 '100 days, 0:06:00', '100 days, 0:08:00', '100 days, 0:10:00',
+                 '100 days, 0:12:00', '100 days, 0:14:00', '100 days, 0:16:00',
+                 '100 days, 0:18:00', '100 days, 0:20:00']
                 ],
                [datetime.timedelta(seconds=40),
-                ['99 days, 23:59:55', '100 days, 0:00:00',
-                 '100 days, 0:00:05', '100 days, 0:00:10',
-                 '100 days, 0:00:15', '100 days, 0:00:20',
-                 '100 days, 0:00:25', '100 days, 0:00:30',
-                 '100 days, 0:00:35', '100 days, 0:00:40',
-                 '100 days, 0:00:45'],
+                ['100 days, 0:00:00', '100 days, 0:00:05', '100 days, 0:00:10',
+                 '100 days, 0:00:15', '100 days, 0:00:20', '100 days, 0:00:25',
+                 '100 days, 0:00:30', '100 days, 0:00:35', '100 days, 0:00:40']
                 ],
                [datetime.timedelta(microseconds=1500),
-                ['100 days, 0:00:00', '100 days, 0:00:00.000200',
-                 '100 days, 0:00:00.000400', '100 days, 0:00:00.000600',
-                 '100 days, 0:00:00.000800', '100 days, 0:00:00.001000',
-                 '100 days, 0:00:00.001200', '100 days, 0:00:00.001400',
-                 '100 days, 0:00:00.001600']
+                ['99 days, 23:59:59.999500', '100 days, 0:00:00',
+                 '100 days, 0:00:00.000500', '100 days, 0:00:00.001000',
+                 '100 days, 0:00:00.001500', '100 days, 0:00:00.002000']
                 ])
 
     for t_delta, expected in results:
@@ -1271,29 +1275,43 @@ def test_auto_timedelta_locator():
         assert list(map(str, mdates.num2timedelta(locator()))) == expected
 
 
-def test_fixed_timedelta_locator_allowed_base():
-    for base in mdates.TimedeltaLocator().base_units:
-        # should not raise
-        mdates.FixedTimedeltaLocator(base, 1)
-
-    with pytest.raises(ValueError):
-        mdates.FixedTimedeltaLocator('lightyear', 1)
-
-
-def test_fixed_timedelta_locator():
+def test_timedelta_locators_fixed():
+    dt0 = datetime.timedelta(days=0)
     results = [
-        ('days', 0.5, 0.5, ['12:00:00', '1 day, 0:00:00',
-                            '1 day, 12:00:00', '2 days, 0:00:00']),
-        ('minutes', 20, 1 / mdates.HOURS_PER_DAY,
-         ['23:40:00', '1 day, 0:00:00',
-          '1 day, 0:20:00', '1 day, 0:40:00',
-          '1 day, 1:00:00', '1 day, 1:20:00'])
+        [mdates.DayLocatorTimedelta,
+         {'interval': 25},
+         datetime.timedelta(days=137),
+         ['0:00:00', '25 days, 0:00:00', '50 days, 0:00:00',
+          '75 days, 0:00:00', '100 days, 0:00:00',
+          '125 days, 0:00:00', '150 days, 0:00:00']],
+        [mdates.HourLocator,
+         {'byhour': [2, 14]},
+         datetime.timedelta(days=3),
+         ['2:00:00', '14:00:00',
+          '1 day, 2:00:00', '1 day, 14:00:00',
+          '2 days, 2:00:00', '2 days, 14:00:00']],
+        [mdates.MinuteLocator,
+         {'byminute': [0, 20, 40]},
+         datetime.timedelta(hours=2),
+         ['0:00:00', '0:20:00', '0:40:00',
+          '1:00:00', '1:20:00', '1:40:00', '2:00:00']],
+        [mdates.SecondLocator,
+         {'bysecond': [0, 15, 30, 45]},
+         datetime.timedelta(minutes=1),
+         ['0:00:00', '0:00:15', '0:00:30',
+          '0:00:45', '0:01:00']],
+        [mdates.MicrosecondLocator,
+         {'interval': 300000},
+         datetime.timedelta(seconds=2),
+         ['-1 day, 23:59:59.700000', '0:00:00', '0:00:00.300000',
+          '0:00:00.600000', '0:00:00.900000', '0:00:01.200000',
+          '0:00:01.500000', '0:00:01.800000', '0:00:02.100000']]
     ]
-    for base, interval, tdelta, expected in results:
-        dt0 = datetime.timedelta(days=1)
-        dt1 = dt0 + datetime.timedelta(days=tdelta)
-        locator = mdates.FixedTimedeltaLocator(base, interval)
+
+    for loc_cls, kwargs, dt1, expected in results:
+        locator = loc_cls(**kwargs)
         locator.create_dummy_axis()
+        locator.set_axis(locator.axis)  # only because of MicrosecondLocator
         locator.set_view_interval(*mdates.date2num([dt0, dt1]))
         assert list(map(str, mdates.num2timedelta(locator()))) == expected
 
@@ -1302,28 +1320,29 @@ def test_timedelta_epoch_independent():
     # timedelta is handled as datetime internally
     # make sure this is independent of the epoch
     mdates._reset_epoch_test_example()
-    mdates.set_epoch("2000-01-01T00:00")
+    mdates.set_epoch("2000-01-01")
     test_auto_timedelta_locator()
     mdates._reset_epoch_test_example()
 
 
 def test_auto_modified_intervald():
     locator = mdates.AutoTimedeltaLocator()
-    locator.intervald['hours'] = [3]
+    locator.intervald[mdates.HOURLY] = [3]
     locator.create_dummy_axis()
     dt1 = datetime.timedelta(days=1)
     dt2 = datetime.timedelta(days=3)
     locator.set_view_interval(mdates.date2num(dt1),
                               mdates.date2num(dt2))
-    expected = ['21:00:00', '1 day, 0:00:00', '1 day, 3:00:00',
-                '1 day, 6:00:00', '1 day, 9:00:00', '1 day, 12:00:00',
-                '1 day, 15:00:00', '1 day, 18:00:00', '1 day, 21:00:00',
-                '2 days, 0:00:00', '2 days, 3:00:00', '2 days, 6:00:00',
-                '2 days, 9:00:00', '2 days, 12:00:00', '2 days, 15:00:00',
-                '2 days, 18:00:00', '2 days, 21:00:00', '3 days, 0:00:00',
-                '3 days, 3:00:00']
+    expected = ['1 day, 0:00:00', '1 day, 3:00:00', '1 day, 6:00:00',
+                '1 day, 9:00:00', '1 day, 12:00:00', '1 day, 15:00:00',
+                '1 day, 18:00:00', '1 day, 21:00:00', '2 days, 0:00:00',
+                '2 days, 3:00:00', '2 days, 6:00:00', '2 days, 9:00:00',
+                '2 days, 12:00:00', '2 days, 15:00:00', '2 days, 18:00:00',
+                '2 days, 21:00:00', '3 days, 0:00:00']
     # auto would usually be using longer intervals for 2 days
-    assert list(map(str, mdates.num2timedelta(locator()))) == expected
+    with pytest.warns(UserWarning, match="AutoDateLocator was unable"):
+        res = list(map(str, mdates.num2timedelta(locator())))
+    assert res == expected
 
 
 def test_datetime64_in_list():
