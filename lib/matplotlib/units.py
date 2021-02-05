@@ -70,7 +70,8 @@ def _is_natively_supported(x):
         for thisx in x:
             if thisx is ma.masked:
                 continue
-            return isinstance(thisx, Number) and not isinstance(thisx, unsupported)
+            return (isinstance(thisx, Number)
+                    and not isinstance(thisx, unsupported))
     else:
         return isinstance(x, Number) and not isinstance(x, unsupported)
 
