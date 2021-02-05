@@ -429,7 +429,7 @@ def date2num(d):
     d = np.asarray(d)
     if not d.size:
         # deals with an empty array...
-        return d
+        return d.astype('float64')
 
     if hasattr(d.take(0), 'value'):
         # elements are pandas objects; temporarily convert data to numbers
