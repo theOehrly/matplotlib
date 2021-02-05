@@ -175,11 +175,12 @@ __all__ = ('datestr2num', 'date2num', 'num2date', 'num2timedelta', 'drange',
            'MonthLocator', 'WeekdayLocator',
            'DayLocator', 'HourLocator', 'MinuteLocator',
            'SecondLocator', 'MicrosecondLocator',
-           'TimedeltaLocator', 'AutoTimedeltaLocator', 'FixedTimedeltaLocator',
+           'DayLocatorTimedelta', 'AutoTimedeltaLocator',
            'rrule', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU',
            'YEARLY', 'MONTHLY', 'WEEKLY', 'DAILY',
            'HOURLY', 'MINUTELY', 'SECONDLY', 'MICROSECONDLY', 'relativedelta',
-           'DateConverter', 'ConciseDateConverter', 'TimedeltaConverter')
+           'DateConverter', 'ConciseDateConverter',
+           'TimedeltaConverter', 'ConciseTimedeltaConverter')
 
 
 _log = logging.getLogger(__name__)
@@ -1646,6 +1647,15 @@ class RRuleLocator(DateLocator):
         return self.tick_values(dmin, dmax)
 
     def tick_values(self, vmin, vmax):
+        start, stop = self._create_rrule(vmin, vmax)
+        dates = self.rule.between(start, stop, True)
+        if len(dates) == 0:
+            return date2num([vmin, vmax])
+        return self.raise_if_exceeds(date2num(dates))
+
+    def _create_rrule(self, vmin, vmax):
+        # set appropriate rrule 'dtstart' and 'until'
+        # return start and end value of the tick interval
         delta = relativedelta(vmax, vmin)
 
         # We need to cap at the endpoints of valid datetime
@@ -1665,10 +1675,7 @@ class RRuleLocator(DateLocator):
 
         self.rule.set(dtstart=start, until=stop)
 
-        dates = self.rule.between(vmin, vmax, True)
-        if len(dates) == 0:
-            return date2num([vmin, vmax])
-        return self.raise_if_exceeds(date2num(dates))
+        return vmin, vmax
 
     def _get_unit(self):
         # docstring inherited
@@ -1908,17 +1915,10 @@ class AutoDateLocator(DateLocator):
         else:
             interval = 1
 
-        if (freq == YEARLY) and self.interval_multiples:
-            locator = YearLocator(interval, tz=self.tz)
-        elif use_rrule_locator[i]:
-            _, bymonth, bymonthday, byhour, byminute, bysecond, _ = byranges
-            rrule = rrulewrapper(self._freq, interval=interval,
-                                 dtstart=dmin, until=dmax,
-                                 bymonth=bymonth, bymonthday=bymonthday,
-                                 byhour=byhour, byminute=byminute,
-                                 bysecond=bysecond)
-
-            locator = RRuleLocator(rrule, self.tz)
+        if use_rrule_locator[i]:
+            locator = self._create_rrule_locator(
+                dmin, dmax, interval, freq, byranges
+            )
         else:
             locator = MicrosecondLocator(interval, tz=self.tz)
             if date2num(dmin) > 70 * 365 and interval < 1000:
@@ -1934,6 +1934,20 @@ class AutoDateLocator(DateLocator):
             locator.set_view_interval(*self.axis.get_view_interval())
             locator.set_data_interval(*self.axis.get_data_interval())
         return locator
+
+    def _create_rrule_locator(self, dmin, dmax, interval, freq, byranges):
+        # rrule can't create ticks on interval multiples for yearly frequencies
+        if (freq == YEARLY) and self.interval_multiples:
+            return YearLocator(interval, tz=self.tz)
+        else:
+            _, bymonth, bymonthday, byhour, byminute, bysecond, _ = byranges
+            rrule = rrulewrapper(self._freq, interval=interval,
+                                 dtstart=dmin, until=dmax,
+                                 bymonth=bymonth, bymonthday=bymonthday,
+                                 byhour=byhour, byminute=byminute,
+                                 bysecond=bysecond)
+
+            return RRuleLocator(rrule, self.tz)
 
 
 class YearLocator(DateLocator):
@@ -2215,177 +2229,43 @@ class MicrosecondLocator(DateLocator):
         return self._interval
 
 
-class TimedeltaLocator(ticker.MultipleLocator):
+class DayLocatorTimedelta(RRuleLocator):
     """
-    Determines the tick locations when plotting timedeltas.
-
-    This class is subclassed by other Locators and
-    is not meant to be used on its own.
-
-    Attributes
-    ----------
-    base_units : list
-
-        list of all supported base units
-
-        By default those are::
-
-            self.base_units = ['days',
-                               'hours',
-                               'minutes',
-                               'seconds',
-                               'microseconds']
-
-    base_factors : dict
-
-        mapping of base units to conversion factors to convert from the
-        default day representation to hours, seconds, ...
+    When plotting timedelta values, make ticks on days which are multiples
+    of the interval.
+    For example on days 0, 25, 50, 75.
     """
-    def __init__(self):
-        super().__init__()
-        self.base_factors = {'days': 1,
-                             'hours': HOURS_PER_DAY,
-                             'minutes': MINUTES_PER_DAY,
-                             'seconds': SEC_PER_DAY,
-                             'microseconds': MUSECONDS_PER_DAY}
-        # don't rely on order of dict
-        self.base_units = ['days',
-                           'hours',
-                           'minutes',
-                           'seconds',
-                           'microseconds']  # mind docstring for fixed locator
-
-    def datalim_to_td(self):
-        """Convert axis data interval to timedelta objects."""
-        tmin, tmax = self.axis.get_data_interval()
-        if tmin > tmax:
-            tmin, tmax = tmax, tmin
-
-        return num2timedelta(tmin), num2timedelta(tmax)
-
-    def viewlim_to_td(self):
-        """Convert the view interval to timedelta objects."""
-        tmin, tmax = self.axis.get_view_interval()
-        if tmin > tmax:
-            tmin, tmax = tmax, tmin
-        return num2timedelta(tmin), num2timedelta(tmax)
-
-    def _create_locator(self, base, interval):
+    def __init__(self, interval=1):
         """
-        Create an instance of :class:`ticker.MultipleLocator` using base unit
-        and interval
-
-        Parameters
-        ----------
-        base : {'days', 'hours', 'minutes',  'seconds', 'microseconds'}
-        interval : int or float
-
-        Returns
-        -------
-        instance of :class:`matplotlib.ticker.MultipleLocator`
+        Mark days starting at zero where *interval* is the interval between
+        each iteration. For example, if ``interval=2``, mark every second
+        occurrence.
         """
-        factor = self.base_factors[base]
+        rule = rrulewrapper(DAILY, interval=interval, **self.hms0d)
+        super().__init__(rule)
+        self.base = ticker._Edge_integer(interval, 0)
 
-        locator = ticker.MultipleLocator(base=interval/factor)
-        locator.set_axis(self.axis)
+    def _create_rrule(self, vmin, vmax):
+        # find the closest interval multiples to vmin/vmax when counting from
+        # the epoch (epoch is zero point for timedelta)
+        # make sure to always extend the range of days but cap at the
+        # endpoints valid datetime
+        dmin, dmax = date2num((vmin, vmax))
+        min_n_days = date2num(datetime.datetime.min)
+        max_n_days = date2num(datetime.datetime.max)
+        dmin = max(self.base.le(dmin) * self.base.step, min_n_days)
+        dmax = min(self.base.ge(dmax) * self.base.step, max_n_days)
 
-        if self.axis is not None:
-            locator.set_view_interval(*self.axis.get_view_interval())
-            locator.set_data_interval(*self.axis.get_data_interval())
+        start, stop = num2date((dmin, dmax))
+        self.rule.set(dtstart=start, until=stop)
 
-        return locator
-
-    def _get_unit(self):
-        """
-        Return how many days a unit of the locator is; used for
-        intelligent autoscaling.
-        """
-        return 1
-
-    def _get_interval(self):
-        """
-        Return the number of units for each tick.
-        """
-        return 1
-
-    def nonsingular(self, vmin, vmax):
-        """
-        Given the proposed upper and lower extent, adjust the range
-        if it is too close to being singular (i.e. a range of ~0).
-        """
-        if not np.isfinite(vmin) or not np.isfinite(vmax):
-            # Except if there is no data, then use 1 day - 2 days as default.
-            return (date2num(datetime.timedelta(days=1)),
-                    date2num(datetime.timedelta(days=2)))
-        if vmax < vmin:
-            vmin, vmax = vmax, vmin
-        unit = self._get_unit()
-        interval = self._get_interval()
-        if abs(vmax - vmin) < 1e-6:
-            vmin -= 2 * unit * interval
-            vmax += 2 * unit * interval
-        return vmin, vmax
+        return start, stop
 
 
-class FixedTimedeltaLocator(TimedeltaLocator):
+class AutoTimedeltaLocator(AutoDateLocator):
     """
-    Make ticks in an interval of the base unit.
-
-    Examples::
-
-      # Ticks every 2 days
-      locator = TimedeltaLocatorManual('days', 2)
-
-      # Ticks every 20 seconds
-      locator = TimedeltaLocatorManual('seconds', 20)
-    """
-    def __init__(self, base_unit, interval):
-        """
-        Parameters
-        ----------
-        base_unit: {'days', 'hours', 'minutes', 'seconds', 'microseconds'}
-        interval: `int` or `float`
-        """
-        super().__init__()
-        if base_unit not in self.base_units:
-            raise ValueError(f"base must be one of {self.base_units}")
-        self.base = base_unit
-        self.interval = interval
-        self._freq = 1 / self.base_factors[base_unit]
-
-    def __call__(self):
-        # docstring inherited
-        locator = self._create_locator(self.base, self.interval)
-        return locator()
-
-    def tick_values(self, vmin, vmax):
-        return self._create_locator(self.base, self.interval)\
-            .tick_values(vmin, vmax)
-
-    def _get_unit(self):
-        return self._freq
-
-    def nonsingular(self, vmin, vmax):
-        if not np.isfinite(vmin) or not np.isfinite(vmax):
-            # Except if there is no data, then use 1 day - 2 days as default.
-            return (date2num(datetime.timedelta(days=1)),
-                    date2num(datetime.timedelta(days=2)))
-        if vmax < vmin:
-            vmin, vmax = vmax, vmin
-        unit = self._get_unit()
-        interval = self._get_interval()
-        # factor adjusts unit from days to hours, seconds, ... if necessary
-        factor = self.base_factors[self.base]
-        if abs(vmax - vmin) < 1e-6 / factor:
-            vmin -= 2 * unit * interval / factor
-            vmax += 2 * unit * interval / factor
-        return vmin, vmax
-
-
-class AutoTimedeltaLocator(TimedeltaLocator):
-    """
-    This class automatically finds the best base unit and interval for setting
-    view limits and tick locations.
+    On autoscale, this class picks the best `DateLocator` to set the view
+    limits and the tick locations for timedelta values.
 
     Attributes
     ----------
@@ -2395,19 +2275,26 @@ class AutoTimedeltaLocator(TimedeltaLocator):
         The default is ::
 
             self.intervald = {
-                'days': [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000, 2000,
-                         5000, 10000, 20000, 50000, 100000, 200000, 500000,
-                         1000000],
-                'hours': [1, 2, 3, 4, 6, 8, 12],
-                'minutes': [1, 2, 3, 5, 10, 15, 20, 30],
-                'seconds': [1, 2, 3, 5, 10, 15, 20, 30],
-                'microseconds': [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
-                                 2000, 5000, 10000, 20000, 50000, 100000,
-                                 200000, 500000, 1000000],
+                YEARLY: [],
+                MONTHLY: [],
+                DAILY: [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000, 2000,
+                        5000, 10000, 20000, 50000, 100000, 200000, 500000,
+                        1000000],
+                HOURLY: [1, 2, 3, 4, 6, 8, 12],
+                MINUTELY: [1, 2, 3, 5, 10, 15, 20, 30],
+                SECONDLY: [1, 2, 3, 5, 10, 15, 20, 30],
+                MICROSECONDLY: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000,
+                                5000, 10000, 20000, 50000, 100000, 200000,
+                                500000, 1000000],
             }
 
+        where the keys are defined in `dateutil.rrule`.
+        Note that the largest possible interval for 'Timedelta' is ``DAILY``.
+        Therefore, the mapping for ``YEARLY`` and ``MONTHLY`` needs to be an
+        empty lists as shown in the default mapping above.
+
         The interval is used to specify multiples that are appropriate for
-        the frequency of ticking. For instance, every 12 hours is sensible
+        the frequency of ticking. For instance, every 6 hours is sensible
         for hourly ticks, but for minutes/seconds, 15 or 30 make sense.
 
         When customizing, you should only modify the values for the existing
@@ -2416,114 +2303,73 @@ class AutoTimedeltaLocator(TimedeltaLocator):
         Example for forcing ticks every 3 hours::
 
             locator = AutoTimedeltaLocator()
-            locator.intervald['hours'] = [3]  # only show every 3 hours
-
-        For forcing ticks in one specific interval only,
-        :class:`FixedTimedeltaLocator` might be preferred.
+            locator.intervald[HOURLY] = [3]  # only show every 3 hours
     """
-    def __init__(self, min_ticks=5):
+    def __init__(self, minticks=5, maxticks=None, interval_multiples=True):
         """
         Parameters
         ----------
-        min_ticks : int
-            The minimum number of ticks desired; controls whether ticks occur
-            daily, hourly, etc.
+        minticks : int
+           The minimum number of ticks desired; controls whether ticks occur
+           yearly, monthly, etc.
+        maxticks : int
+           The maximum number of ticks desired; controls the interval between
+           ticks (ticking every other, every 3, etc.).  For fine-grained
+           control, this can be a dictionary mapping individual rrule
+           frequency constants (DAILY, HOURLY, etc.) to their own maximum
+           number of ticks.  This can be used to keep the number of ticks
+           appropriate to the format chosen in `AutoTimedeltaFormatter`. Any
+           frequency not specified in this dictionary is given a default
+           value.
+        interval_multiples : bool, default: True
+           Whether ticks should be chosen to be multiple of the interval,
+           locking them to 'nicer' locations.  For example, this will force
+           the ticks to be at hours 0, 6, 12, 18 when hourly ticking is done
+           at 6 hour intervals.
         """
-        super().__init__()
-        self.intervald = {
-            'days': [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000, 2000,
-                     5000, 10000, 20000, 50000, 100000, 200000, 500000,
-                     1000000],
-            'hours': [1, 2, 3, 4, 6, 8, 12],
-            'minutes': [1, 2, 3, 5, 10, 15, 20, 30],
-            'seconds': [1, 2, 3, 5, 10, 15, 20, 30],
-            'microseconds': [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000,
-                             5000, 10000, 20000, 50000, 100000, 200000, 500000,
-                             1000000],
-        }  # mind the default in the docstring
-        self.min_ticks = min_ticks
-        self._freq = 1.0  # default is daily
+        super().__init__(minticks=minticks, maxticks=maxticks,
+                         interval_multiples=interval_multiples)
 
-    def __call__(self):
-        # docstring inherited
-        tmin, tmax = self.viewlim_to_td()
-        locator = self.get_locator(tmin, tmax)
-        return locator()
-
-    def tick_values(self, vmin, vmax):
-        locator = self.get_locator(vmin, vmax)
-        return locator.tick_values(vmin, vmax)
-
-    def nonsingular(self, vmin, vmax):
-        # whatever is thrown at us, we can scale the unit.
-        # But default nonsingular date plots at an ~4 day period.
-        if not np.isfinite(vmin) or not np.isfinite(vmax):
-            # Except if there is no data, then use 1 day - 2 days as default.
-            return (date2num(datetime.timedelta(days=1)),
-                    date2num(datetime.timedelta(days=2)))
-        if vmax < vmin:
-            vmin, vmax = vmax, vmin
-        if vmin == vmax:
-            vmin -= 2
-            vmax += 2
-        return vmin, vmax
-
-    def _get_unit(self):
-        return self._freq
-
-    def get_locator(self, vmin, vmax):
-        """
-        Create the best locator based on the given limits.
-
-        This will choose the settings for a
-        :class:`matplotlib.ticker.MultipleLocator`
-        based on the available base units and associated intervals.
-        The locator is created so that there are as few ticks as possible
-        but more ticks than specified with min_ticks in init.
-
-        Returns
-        -------
-        instance of :class:`matplotlib.ticker.MultipleLocator`
-        """
-        tdelta = vmax - vmin
-
-        # take absolute difference
-        if vmin > vmax:
-            tdelta = -tdelta
-
-        tdelta = date2num(tdelta)
-
-        # find an appropriate base unit and interval for it
-        base = self._get_base(tdelta)
-        factor = self.base_factors[base]
-        norm_delta = tdelta * factor
-        self._freq = 1/factor
-        interval = self._get_interval_for_base(norm_delta, base)
-
-        return self._create_locator(base, interval)
-
-    def _get_base(self, tdelta):
-        # find appropriate base unit for given time delta
-        base = 'days'  # fallback
-        for base in self.base_units:
+        self.maxticks = {YEARLY: 0, MONTHLY: 0, DAILY: 11, HOURLY: 12,
+                         MINUTELY: 11, SECONDLY: 11, MICROSECONDLY: 8}
+        if maxticks is not None:
             try:
-                factor = self.base_factors[base]
-                if tdelta * factor >= self.min_ticks:
-                    break
-            except KeyError:
-                continue  # intervald was modified
-        return base
+                self.maxticks.update(maxticks)
+            except TypeError:
+                # Assume we were given an integer. Use this as the maximum
+                # number of ticks for every frequency and create a
+                # dictionary for this
+                self.maxticks = dict.fromkeys(self._freqs, maxticks)
+            # ensure that YEARLY and MONTHLY are empty lists
+            self.maxticks.update({YEARLY: [], MONTHLY: []})
 
-    def _get_interval_for_base(self, norm_delta, base):
-        # find appropriate interval for given delta and min ticks
-        # norm_delta = tdelta * base_factor
-        base_intervals = self.intervald[base]
-        interval = 1  # fallback (and for static analysis)
-        for interval in reversed(base_intervals):
-            if norm_delta // interval >= self.min_ticks:
-                break
+        self.intervald = {
+            YEARLY: [],
+            MONTHLY: [],
+            DAILY: [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000, 2000,
+                    5000, 10000, 20000, 50000, 100000, 200000, 500000,
+                    1000000],
+            HOURLY: [1, 2, 3, 4, 6, 8, 12],
+            MINUTELY: [1, 2, 3, 5, 10, 15, 20, 30],
+            SECONDLY: [1, 2, 3, 5, 10, 15, 20, 30],
+            MICROSECONDLY: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000,
+                            5000, 10000, 20000, 50000, 100000, 200000, 500000,
+                            1000000],
+        }
 
-        return interval
+        self._byranges = [None, None, None, range(0, 24), range(0, 60),
+                          range(0, 60), None]
+
+    def _create_rrule_locator(self, dmin, dmax, interval, freq, byranges):
+        # rrule can't create ticks on interval multiples for daily frequencies
+        # when plotting timedeltas. For all other cases the same locators as
+        # for dates can be used.
+        if (freq == DAILY) and self.interval_multiples:
+            return DayLocatorTimedelta(interval=interval)
+        else:
+            return super()._create_rrule_locator(
+                dmin, dmax, interval, freq, byranges
+            )
 
 
 def epoch2num(e):
